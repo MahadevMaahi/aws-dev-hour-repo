@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import 'source-map-support/register';
 import * as cdk from 'aws-cdk-lib';
-import { AwsDevHourStack } from '../lib/aws dev hour-stack';
+import { AwsDevHourStack } from '../lib/aws_dev_hour-stack';
 
 const app = new cdk.App();
 new AwsDevHourStack(app, 'AwsDevHourStack', {
