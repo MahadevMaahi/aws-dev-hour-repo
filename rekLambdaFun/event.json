@@ -1,0 +1,12 @@
+{
+    "Records": [{
+		"s3": {
+			"bucket": {
+				"name": "sai-cdk-rekn-image-bucket"
+			},
+			"object": {
+				"key": "image.jpg"
+			}
+		}
+	}]
+}

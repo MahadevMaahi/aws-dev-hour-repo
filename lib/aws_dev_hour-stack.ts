@@ -52,7 +52,7 @@ export class AwsDevHourStack extends cdk.Stack {
     // Allow rekFun to Detect Lables form ReKognition
     rekFn.addToRolePolicy(new _iam.PolicyStatement({
       effect: _iam.Effect.ALLOW,
-      actions: ['rekognition:DetectLables'],
+      actions: ['rekognition:DetectLabels'],
       resources: ['*']
     }));
 
