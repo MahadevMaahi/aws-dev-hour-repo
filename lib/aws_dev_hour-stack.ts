@@ -1,6 +1,6 @@
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
-import { Duration } from 'aws-cdk-lib';
+import { Duration, RemovalPolicy } from 'aws-cdk-lib';
 import _s3 = require('aws-cdk-lib/aws-s3');
 import _lambda = require('aws-cdk-lib/aws-lambda');
 import _dynamodb = require('aws-cdk-lib/aws-dynamodb');
@@ -10,6 +10,9 @@ import _event_sources = require('aws-cdk-lib/aws-lambda-event-sources');
 // Bucket Name Declaration
 const _imageBucketName = 'sai-cdk-rekn-image-bucket'
 
+// Resize Bucket Name Declaration
+const _resizedImageBucketName = _imageBucketName + '-resized'
+
 
 export class AwsDevHourStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -18,14 +21,31 @@ export class AwsDevHourStack extends cdk.Stack {
     // The code that defines your stack goes here
     
     //Image Bucket to store Images
-    const imageBucket = new _s3.Bucket(this, _imageBucketName);
+    const imageBucket = new _s3.Bucket(this, _imageBucketName, {
+      removalPolicy: cdk.RemovalPolicy.DESTROY
+    });
     new cdk.CfnOutput(this, "rekn-image-bucket", {value: imageBucket.bucketName});
+    
+    //Image Bucket to store resized Images
+    const resizedBucket = new _s3.Bucket(this, _resizedImageBucketName, {
+      removalPolicy: cdk.RemovalPolicy.DESTROY
+    });
+    new cdk.CfnOutput(this, "rekn-resized-image-bucket", {value: resizedBucket.bucketName});
 
     // Dynamo DB Table to Store image labels
     const table = new _dynamodb.Table(this, 'imagelables', {
-      partitionKey: {name: 'image', type: _dynamodb.AttributeType.STRING}
+      partitionKey: {name: 'image', type: _dynamodb.AttributeType.STRING},
+      removalPolicy: cdk.RemovalPolicy.DESTROY
     });
     new cdk.CfnOutput(this, 'ddbTable', {value: table.tableName})
+
+    // Add PIL Layer to Lambda Rek Function to resize Images
+    const layer = new _lambda.LayerVersion(this, 'PIL', {
+      code: _lambda.Code.fromAsset('reklayer'),
+      compatibleRuntimes: [_lambda.Runtime.PYTHON_3_7],
+      license: 'Apache-2.0',
+      description: 'A Layer to Enable the PIL Library in our RekFun'
+    })
 
     // Build Lambda to read from Image Bucket and Write to Image table
     const rekFn = new _lambda.Function(this, 'rekFun', {
@@ -34,9 +54,11 @@ export class AwsDevHourStack extends cdk.Stack {
       handler: 'index.handler',
       timeout: Duration.seconds(15),
       memorySize: 1024,
+      layers: [layer],
       environment: {
         "TABLE": table.tableName,
-        "BUCKET": imageBucket.bucketName
+        "BUCKET": imageBucket.bucketName,
+        "THUMB_BUCKET": resizedBucket.bucketName
       },
     });
 
@@ -48,6 +70,7 @@ export class AwsDevHourStack extends cdk.Stack {
     // Allow rekFun lambda To read image Bucket and write to Image Table
     imageBucket.grantRead(rekFn);
     table.grantWriteData(rekFn);
+    resizedBucket.grantPut(rekFn);
 
     // Allow rekFun to Detect Lables form ReKognition
     rekFn.addToRolePolicy(new _iam.PolicyStatement({
@@ -55,6 +78,22 @@ export class AwsDevHourStack extends cdk.Stack {
       actions: ['rekognition:DetectLabels'],
       resources: ['*']
     }));
+
+    // Lambda For Synchronous Front End
+    const serviceFn = new _lambda.Function(this, 'serviceFun', {
+      code: _lambda.Code.fromAsset('serviceLambdaFun'),
+      runtime: _lambda.Runtime.PYTHON_3_7,
+      handler: 'index.handler',
+      environment: {
+        "TABLE": table.tableName,
+        "BUCKET": imageBucket.bucketName,
+        "THUMB_BUCKET": resizedBucket.bucketName
+      },
+    });
+
+    imageBucket.grantDelete(serviceFn)
+    resizedBucket.grantDelete(serviceFn)
+    table.grantReadWriteData(serviceFn)
 
   }
 }
