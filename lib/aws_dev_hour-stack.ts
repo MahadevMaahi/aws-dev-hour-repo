@@ -6,6 +6,8 @@ import _lambda = require('aws-cdk-lib/aws-lambda');
 import _dynamodb = require('aws-cdk-lib/aws-dynamodb');
 import _iam = require('aws-cdk-lib/aws-iam');
 import _event_sources = require('aws-cdk-lib/aws-lambda-event-sources');
+import _apigw = require('aws-cdk-lib/aws-apigateway')
+import { PassthroughBehavior } from 'aws-cdk-lib/aws-apigateway';
 
 // Bucket Name Declaration
 const _imageBucketName = 'sai-cdk-rekn-image-bucket'
@@ -94,6 +96,96 @@ export class AwsDevHourStack extends cdk.Stack {
     imageBucket.grantDelete(serviceFn)
     resizedBucket.grantDelete(serviceFn)
     table.grantReadWriteData(serviceFn)
+
+    // API-GW Declaration 
+    const api = new _apigw.LambdaRestApi(this, 'ImageAPI', {
+      defaultCorsPreflightOptions: {
+        allowOrigins: _apigw.Cors.ALL_ORIGINS,
+        allowMethods: _apigw.Cors.ALL_METHODS
+      },
+      handler: serviceFn,
+      proxy: false
+    });
+
+    // API-GW and Lambda Integration
+    const lambdaIntegration = new _apigw.LambdaIntegration(serviceFn, {
+      proxy: false,
+      requestParameters: {
+        'integration.request.querystring.action': 'method.request.querystring.action',
+        'integration.request.querystring.key': 'method.request.querystring.key'
+      },
+      requestTemplates: {
+        'application/json': JSON.stringify({ action: "$util.escapeJavaScript($input.params('action'))", key: "$util.escapeJavaScript($input.params('key'))" })
+      },
+      passthroughBehavior: PassthroughBehavior.WHEN_NO_TEMPLATES,
+      integrationResponses: [
+        {
+          statusCode: "200",
+          responseParameters: {
+            // We can map response parameters
+            // - Destination parameters (the key) are the response parameters (used in mappings)
+            // - Source parameters (the value) are the integration response parameters or expressions
+            'method.response.header.Access-Control-Allow-Origin': "'*'"
+          }
+        },
+        {
+          // For errors, we check if the error message is not empty, get the error data
+          selectionPattern: "(\n|.)+",
+          statusCode: "500",
+          responseParameters: {
+            'method.response.header.Access-Control-Allow-Origin': "'*'"
+          }
+        }
+      ],
+    });
+
+    //API-GW Methods Declarations
+
+    const imageAPI = api.root.addResource('images');
+    ​
+    // GET /images
+    imageAPI.addMethod('GET', lambdaIntegration, {
+      requestParameters: {
+        'method.request.querystring.action': true,
+        'method.request.querystring.key': true
+      },
+      methodResponses: [
+        {
+          statusCode: "200",
+          responseParameters: {
+            'method.response.header.Access-Control-Allow-Origin': true,
+          },
+        },
+        {
+          statusCode: "500",
+          responseParameters: {
+            'method.response.header.Access-Control-Allow-Origin': true,
+          },
+        }
+      ]
+    });
+    
+    // DELETE /images
+    imageAPI.addMethod('DELETE', lambdaIntegration, {
+      requestParameters: {
+        'method.request.querystring.action': true,
+        'method.request.querystring.key': true
+      },
+      methodResponses: [
+        {
+          statusCode: "200",
+          responseParameters: {
+            'method.response.header.Access-Control-Allow-Origin': true,
+          },
+        },
+        {
+          statusCode: "500",
+          responseParameters: {
+            'method.response.header.Access-Control-Allow-Origin': true,
+          },
+        }
+      ]
+    });
 
   }
 }
