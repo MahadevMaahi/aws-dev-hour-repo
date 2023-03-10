@@ -1,6 +1,6 @@
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
-import { Duration, RemovalPolicy } from 'aws-cdk-lib';
+import { Duration } from 'aws-cdk-lib';
 import _s3 = require('aws-cdk-lib/aws-s3');
 import _lambda = require('aws-cdk-lib/aws-lambda');
 import _dynamodb = require('aws-cdk-lib/aws-dynamodb');
@@ -9,6 +9,8 @@ import _event_sources = require('aws-cdk-lib/aws-lambda-event-sources');
 import _apigw = require('aws-cdk-lib/aws-apigateway');
 import _cognito = require('aws-cdk-lib/aws-cognito');
 import { AuthorizationType, PassthroughBehavior } from 'aws-cdk-lib/aws-apigateway';
+import _s3Deploy = require('aws-cdk-lib/aws-s3-deployment');
+import { HttpMethods } from 'aws-cdk-lib/aws-s3';
 
 // Bucket Name Declaration
 const _imageBucketName = 'sai-cdk-rekn-image-bucket'
@@ -16,6 +18,8 @@ const _imageBucketName = 'sai-cdk-rekn-image-bucket'
 // Resize Bucket Name Declaration
 const _resizedImageBucketName = _imageBucketName + '-resized'
 
+// Website Bucket Name Declaration
+const _websiteBucketName = "sai-cdk-rekn-website-bucket"
 
 export class AwsDevHourStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -29,6 +33,14 @@ export class AwsDevHourStack extends cdk.Stack {
     });
     new cdk.CfnOutput(this, "rekn-image-bucket", {value: imageBucket.bucketName});
     const imageBucketArn = imageBucket.bucketArn
+
+    // CORS Allow to resize Bucket
+    imageBucket.addCorsRule({
+      allowedMethods: [HttpMethods.GET, HttpMethods.PUT],
+      allowedOrigins: ['*'],
+      allowedHeaders: ['*'],
+      maxAge: 3000
+    })
     
     //Image Bucket to store resized Images
     const resizedBucket = new _s3.Bucket(this, _resizedImageBucketName, {
@@ -36,6 +48,42 @@ export class AwsDevHourStack extends cdk.Stack {
     });
     new cdk.CfnOutput(this, "rekn-resized-image-bucket", {value: resizedBucket.bucketName});
     const resizedBucketArn = resizedBucket.bucketArn
+
+    // CORS Allow to resize Bucket
+    resizedBucket.addCorsRule({
+      allowedMethods: [HttpMethods.GET, HttpMethods.PUT],
+      allowedOrigins: ['*'],
+      allowedHeaders: ['*'],
+      maxAge: 3000
+    })
+
+    const webBucket = new _s3.Bucket(this, _websiteBucketName, {
+      websiteIndexDocument: 'index.html',
+      websiteErrorDocument: 'index.html',
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      // publicReadAccess: true
+    });
+
+    webBucket.addToResourcePolicy(new _iam.PolicyStatement({
+      actions: ['s3:GetObject'],
+      resources: [webBucket.arnForObjects('*')],
+      principals: [new _iam.AnyPrincipal()],
+      conditions: {
+        'IpAddress': {
+          'aws:SourceIp': [
+            '0.0.0.0/0' // Anyone in the Internet
+          ]
+        }
+      }
+    }));
+    
+    new cdk.CfnOutput(this, 'websiteBucketUrl', {value: webBucket.bucketWebsiteDomainName});
+
+    // Deploying website contents to S3 Bucket
+    new _s3Deploy.BucketDeployment(this, 'delpoyWebsite', {
+      sources: [_s3Deploy.Source.asset('./build')],
+      destinationBucket: webBucket
+    })
 
     // Dynamo DB Table to Store image labels
     const table = new _dynamodb.Table(this, 'imagelables', {
