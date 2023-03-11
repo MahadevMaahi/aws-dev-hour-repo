@@ -11,6 +11,8 @@ import _cognito = require('aws-cdk-lib/aws-cognito');
 import { AuthorizationType, PassthroughBehavior } from 'aws-cdk-lib/aws-apigateway';
 import _s3Deploy = require('aws-cdk-lib/aws-s3-deployment');
 import { HttpMethods } from 'aws-cdk-lib/aws-s3';
+import _sqs = require('aws-cdk-lib/aws-sqs');
+import _s3n = require('aws-cdk-lib/aws-s3-notifications');
 
 // Bucket Name Declaration
 const _imageBucketName = 'sai-cdk-rekn-image-bucket'
@@ -116,9 +118,9 @@ export class AwsDevHourStack extends cdk.Stack {
     });
 
     // Add Object Creation event source of image bucket to trigger rekFun lambda
-    rekFn.addEventSource(new _event_sources.S3EventSource(imageBucket, {
-      events: [_s3.EventType.OBJECT_CREATED],
-    }));
+    // rekFn.addEventSource(new _event_sources.S3EventSource(imageBucket, {
+    //   events: [_s3.EventType.OBJECT_CREATED],
+    // }));
 
     // Allow rekFun lambda To read image Bucket and write to Image Table
     imageBucket.grantRead(rekFn);
@@ -331,5 +333,27 @@ export class AwsDevHourStack extends cdk.Stack {
       ]
     });
 
+    // Building Queue and Dead letter queue
+    const dlqueue = new _sqs.Queue(this, 'ImageDLQueue', {
+      queueName: 'DeadLetterImageQueue'
+    });
+
+    const imageQueue = new _sqs.Queue(this, 'ImageQueue', {
+      queueName: 'ImageQueue',
+      visibilityTimeout: cdk.Duration.seconds(30),
+      receiveMessageWaitTime: cdk.Duration.seconds(20),
+      deadLetterQueue: {
+        maxReceiveCount: 2,
+        queue: dlqueue
+      }
+    });
+
+    // S3 Bucket create notification to SQS
+    imageBucket.addObjectCreatedNotification(new _s3n.SqsDestination(imageQueue), {
+      prefix: 'private/'
+    });
+
+    // rekFun to consume messages from SQS
+    rekFn.addEventSource(new _event_sources.SqsEventSource(imageQueue));
   }
 }
