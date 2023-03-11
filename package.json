@@ -1,5 +1,5 @@
 {
-  "name": "aws dev hour",
+  "name": "AWSDevHour",
   "version": "0.1.0",
   "bin": {
     "aws dev hour": "bin/aws dev hour.js"
